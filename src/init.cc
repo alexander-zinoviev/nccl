@@ -811,7 +811,7 @@ static ncclResult_t collNetTrySetup(ncclComm_t comm, ncclComm_t parent, struct n
       comm->intraHighestTransportType = highestTypes[i];
   }
 
-  INFO(NCCL_INIT, "rank %d Connected CollNet", rank);
+  INFO(NCCL_INIT, "Connected CollNet");
 
 exit:
   free(infos);
@@ -1538,10 +1538,10 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   comm->commHash = getHash(job->commId.internal, NCCL_UNIQUE_ID_BYTES);
 
   if (job->parent) {
-    INFO(NCCL_INIT,"ncclCommSplit comm %p rank %d nranks %d cudaDev %d nvmlDev %d busId %lx parent %p color %d key %d commId 0x%llx - Init START",
+    INFO(NCCL_INIT,"ncclCommSplit comm %p cudaDev %d nvmlDev %d busId %lx parent %p color %d key %d commId 0x%llx - Init START",
     comm, comm->rank, comm->nRanks, comm->cudaDev, comm->nvmlDev, comm->busId, job->parent, job->color, job->key, (unsigned long long)hashUniqueId(job->commId));
   } else {
-    INFO(NCCL_INIT,"ncclCommInitRank comm %p rank %d nranks %d cudaDev %d nvmlDev %d busId %lx commId 0x%llx - Init START",
+    INFO(NCCL_INIT,"ncclCommInitRank comm %p cudaDev %d nvmlDev %d busId %lx commId 0x%llx - Init START",
     comm, comm->rank, comm->nRanks, comm->cudaDev, comm->nvmlDev, comm->busId, (unsigned long long)hashUniqueId(job->commId));
   }
 
@@ -1567,12 +1567,13 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   }
 
   if (job->parent) {
-    INFO(NCCL_INIT,"ncclCommSplit comm %p rank %d nranks %d cudaDev %d nvmlDev %d busId %lx parent %p color %d key %d commId 0x%llx - Init COMPLETE",
+    INFO(NCCL_INIT,"ncclCommSplit comm %p cudaDev %d nvmlDev %d busId %lx parent %p color %d key %d commId 0x%llx - Init COMPLETE",
     comm, comm->rank, comm->nRanks, comm->cudaDev, comm->nvmlDev, comm->busId, job->parent, job->color, job->key, (unsigned long long)hashUniqueId(job->commId));
   } else {
-    INFO(NCCL_INIT,"ncclCommInitRank comm %p rank %d nranks %d cudaDev %d nvmlDev %d busId %lx commId 0x%llx - Init COMPLETE",
+    INFO(NCCL_INIT,"ncclCommInitRank comm %p cudaDev %d nvmlDev %d busId %lx commId 0x%llx - Init COMPLETE",
     comm, comm->rank, comm->nRanks, comm->cudaDev, comm->nvmlDev, comm->busId, (unsigned long long)hashUniqueId(job->commId));
   }
+
 exit:
   if (job->newcomm) {
     /* assign it to user pointer. */
@@ -1824,6 +1825,8 @@ constexpr nvtxPayloadSchemaEntry_t CommInitRankSchema[] = {
 
 NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int nranks, ncclUniqueId commId, int myrank);
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int nranks, ncclUniqueId commId, int myrank) {
+  (void)ncclDebugSetDistributorParams(myrank, nranks);
+
   // Load the CUDA driver and dlsym hooks (can fail on old drivers)
   (void)ncclCudaLibraryInit();
 
@@ -1908,6 +1911,8 @@ ncclResult_t ncclCommSetAsyncError(ncclComm_t comm, ncclResult_t nextState) {
 
 NCCL_API(ncclResult_t, ncclCommInitRankConfig, ncclComm_t* comm, int nranks, ncclUniqueId commId, int myrank, ncclConfig_t *config);
 ncclResult_t ncclCommInitRankConfig(ncclComm_t *newcomm, int nranks, ncclUniqueId commId, int myrank, ncclConfig_t *config) {
+  (void)ncclDebugSetDistributorParams(myrank, nranks);
+
   NVTX3_FUNC_RANGE_IN(nccl_domain);
   int cudaDev;
   ncclResult_t ret = ncclSuccess;
@@ -2151,7 +2156,7 @@ ncclResult_t ncclCommDestroy(ncclComm_t comm) {
   NCCLCHECK(ncclCommEnsureReady(comm));
 
   NCCLCHECK(commReclaim(comm));
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d cudaDev %d busId %lx - Destroy COMPLETE", comm, rank, nranks, cudaDev, busId);
+  INFO(NCCL_INIT,"comm %p cudaDev %d busId %lx - Destroy COMPLETE", comm, cudaDev, busId);
 
   return ncclSuccess;
 }
@@ -2183,7 +2188,7 @@ ncclResult_t ncclCommAbort(ncclComm_t comm) {
   ncclCommEnsureReady(comm);
 
   (void) commReclaim(comm);
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d cudaDev %d busId %lx - Abort COMPLETE", comm, rank, nranks, cudaDev, busId);
+  INFO(NCCL_INIT,"comm %p cudaDev %d busId %lx - Abort COMPLETE", comm, cudaDev, busId);
 
   return ncclSuccess;
 }

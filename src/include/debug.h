@@ -26,6 +26,7 @@ extern pthread_mutex_t ncclDebugLock;
 extern FILE *ncclDebugFile;
 extern ncclResult_t getHostName(char* hostname, int maxlen, const char delim);
 
+void ncclDebugSetDistributorParams(int rank_, int nranks_);
 void ncclDebugLog(ncclDebugLogLevel level, unsigned long flags, const char *filefunc, int line, const char *fmt, ...) __attribute__ ((format (printf, 5, 6)));
 
 // Let code temporarily downgrade WARN into INFO
@@ -33,11 +34,11 @@ extern thread_local int ncclDebugNoWarn;
 extern char ncclLastError[];
 
 #define WARN(...) ncclDebugLog(NCCL_LOG_WARN, NCCL_ALL, __FILE__, __LINE__, __VA_ARGS__)
-#define INFO(FLAGS, ...) ncclDebugLog(NCCL_LOG_INFO, (FLAGS), __func__, __LINE__, __VA_ARGS__)
-#define TRACE_CALL(...) ncclDebugLog(NCCL_LOG_TRACE, NCCL_CALL, __func__, __LINE__, __VA_ARGS__)
+#define INFO(FLAGS, ...) ncclDebugLog(NCCL_LOG_INFO, (FLAGS), __FILE__, __LINE__, __VA_ARGS__)
+#define TRACE_CALL(...) ncclDebugLog(NCCL_LOG_TRACE, NCCL_CALL, __FILE__, __LINE__, __VA_ARGS__)
 
 #ifdef ENABLE_TRACE
-#define TRACE(FLAGS, ...) ncclDebugLog(NCCL_LOG_TRACE, (FLAGS), __func__, __LINE__, __VA_ARGS__)
+#define TRACE(FLAGS, ...) ncclDebugLog(NCCL_LOG_TRACE, (FLAGS), __FILE__, __LINE__, __VA_ARGS__)
 extern std::chrono::steady_clock::time_point ncclEpoch;
 #else
 #define TRACE(...)

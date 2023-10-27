@@ -90,15 +90,38 @@ NCCL_PARAM(IbPciRelaxedOrdering, "IB_PCI_RELAXED_ORDERING", 2);
 NCCL_PARAM(IbAdaptiveRouting, "IB_ADAPTIVE_ROUTING", -2);
 
 pthread_t ncclIbAsyncThread;
+
+static bool ncclIbIsPortEvent(ibv_event_type event_type) {
+  return (
+    event_type == IBV_EVENT_PORT_ACTIVE
+    || event_type == IBV_EVENT_LID_CHANGE
+    || event_type == IBV_EVENT_PKEY_CHANGE
+    || event_type == IBV_EVENT_GID_CHANGE
+    || event_type == IBV_EVENT_SM_CHANGE
+    || event_type == IBV_EVENT_CLIENT_REREGISTER
+    || event_type == IBV_EVENT_PORT_ERR
+  );
+}
+
 static void* ncclIbAsyncThreadMain(void* args) {
-  struct ncclIbDev* dev = (struct ncclIbDev*)args;
+  struct ibv_context* context = (struct ibv_context*)args;
+
+  char msg[1024];
   while (1) {
     struct ibv_async_event event;
-    if (ncclSuccess != wrap_ibv_get_async_event(dev->context, &event)) { break; }
-    char *str;
-    if (ncclSuccess != wrap_ibv_event_type_str(&str, event.event_type)) { break; }
-    if (event.event_type != IBV_EVENT_COMM_EST)
-      WARN("NET/IB : %s:%d Got async event : %s", dev->devName, dev->portNum, str);
+    if (ncclSuccess != wrap_ibv_get_async_event(context, &event)) { break; }
+
+    char *event_type_str;
+    if (ncclSuccess != wrap_ibv_event_type_str(&event_type_str, event.event_type)) { break; }
+
+    if (event.event_type != IBV_EVENT_COMM_EST) {
+      if (ncclIbIsPortEvent(event.event_type)) {
+        snprintf(msg, 1024, "%s (name: %s, port_num: %d)", event_type_str, context->device->name, event.element.port_num);
+      } else {
+        snprintf(msg, 1024, "%s (name: %s)", event_type_str, context->device->name);
+      }
+      WARN("NET/IB: Got async event: %s", msg);
+    }
     if (ncclSuccess != wrap_ibv_ack_async_event(&event)) { break; }
   }
   return NULL;
