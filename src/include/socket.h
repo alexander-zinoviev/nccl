@@ -66,7 +66,7 @@ struct ncclSocket {
   enum ncclSocketType type;
 };
 
-const char *ncclSocketToString(union ncclSocketAddress *addr, char *buf, const int numericHostForm = 1);
+const char *ncclSocketToString(union ncclSocketAddress *addr, char *buf, const int numericHostForm = 0);
 ncclResult_t ncclSocketGetAddrFromString(union ncclSocketAddress* ua, const char* ip_port_pair);
 int ncclFindInterfaceMatchSubnet(char* ifNames, union ncclSocketAddress* localAddrs, union ncclSocketAddress* remoteAddr, int ifNameMaxSize, int maxIfs);
 int ncclFindInterfaces(char* ifNames, union ncclSocketAddress *ifAddrs, int ifNameMaxSize, int maxIfs);

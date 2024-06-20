@@ -6,12 +6,20 @@
 
 #include "core.h"
 #include "nccl_net.h"
+#include <ctime>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <string>
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdarg.h>
 #include <sys/syscall.h>
 #include "param.h"
 
 int ncclDebugLevel = -1;
+static std::string rank = "?";
+static std::string nranks = "?";
 static int pid = -1;
 static char hostname[1024];
 thread_local int ncclDebugNoWarn = 0;
@@ -22,6 +30,33 @@ pthread_mutex_t ncclDebugLock = PTHREAD_MUTEX_INITIALIZER;
 std::chrono::steady_clock::time_point ncclEpoch;
 
 static __thread int tid = -1;
+
+static int numDigits(int n) {
+  int ndigits = 0;
+  while (n > 0) {
+    n /= 10;
+    ndigits++;
+  }
+  return ndigits; // Note this returns 0 for negative numbers, and that's ok for our purposes
+}
+
+void ncclDebugSetDistributorParams(int _rank, int _nranks) {
+  pthread_mutex_lock(&ncclDebugLock);
+
+  // dtrain logging zero-pads the rank depending on nranks (e.g. if nranks = 128, then for rank 8,
+  // we'll format it as 008/128, hence the need to calculate numDigits.
+  std::size_t ndigits = numDigits(_nranks);
+
+  std::ostringstream rank_oss;
+  rank_oss << std::setfill('0') << std::setw(ndigits) << _rank;
+  rank = rank_oss.str();
+
+  std::ostringstream nranks_oss;
+  nranks_oss << std::setfill('0') << std::setw(ndigits) << _nranks;
+  nranks = nranks_oss.str();
+
+  pthread_mutex_unlock(&ncclDebugLock);
+}
 
 void ncclDebugInit() {
   pthread_mutex_lock(&ncclDebugLock);
@@ -139,11 +174,30 @@ void ncclDebugInit() {
   }
 
   ncclEpoch = std::chrono::steady_clock::now();
+
+  tzset();  // Need to call this once for get_local_now()
   __atomic_store_n(&ncclDebugLevel, tempNcclDebugLevel, __ATOMIC_RELEASE);
   pthread_mutex_unlock(&ncclDebugLock);
 }
 
 NCCL_PARAM(WarnSetDebugInfo, "WARN_ENABLE_DEBUG_INFO", 0);
+
+std::string get_local_now() {
+  const auto now = std::chrono::system_clock::now();
+  const time_t time_ = std::chrono::system_clock::to_time_t(now);
+  const int64_t msec = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000LL;
+
+  std::ostringstream _fmt;
+  _fmt << "%F %T," << std::setfill('0') << std::setw(3) << msec;
+  std::string fmt = _fmt.str();
+
+  struct tm tmp;
+  localtime_r(&time_, &tmp);
+
+  std::ostringstream out;
+  out << std::put_time(&tmp, fmt.c_str());
+  return out.str();
+}
 
 /* Common logging function used by the INFO, WARN and TRACE macros
  * Also exported to the dynamically loadable Net transport modules so
@@ -168,26 +222,29 @@ void ncclDebugLog(ncclDebugLogLevel level, unsigned long flags, const char *file
     tid = syscall(SYS_gettid);
   }
 
-  int cudaDev;
-  if (!(level == NCCL_LOG_TRACE && flags == NCCL_CALL)) {
-    cudaGetDevice(&cudaDev);
-  }
-
-  char buffer[1024];
+  std::string local_now = get_local_now();
+  char buffer[2048];
   size_t len = 0;
   if (level == NCCL_LOG_WARN) {
-    len = snprintf(buffer, sizeof(buffer), "\n%s:%d:%d [%d] %s:%d NCCL WARN ",
-                   hostname, pid, tid, cudaDev, filefunc, line);
+    len = snprintf(
+        buffer, sizeof(buffer),
+        "[%s/%s][%s] [%s:%d] [%s:pid=%d] NCCL WARN ",
+        rank.c_str(), nranks.c_str(), local_now.c_str(), filefunc, line, hostname, pid
+    );
     if (ncclParamWarnSetDebugInfo()) ncclDebugLevel = NCCL_LOG_INFO;
   } else if (level == NCCL_LOG_INFO) {
-    len = snprintf(buffer, sizeof(buffer), "%s:%d:%d [%d] NCCL INFO ", hostname, pid, tid, cudaDev);
+    len = snprintf(
+        buffer, sizeof(buffer),
+        "[%s/%s][%s] [%s:%d] [%s:pid=%d] NCCL INFO ",
+        rank.c_str(), nranks.c_str(), local_now.c_str(), filefunc, line, hostname, pid
+    );
   } else if (level == NCCL_LOG_TRACE && flags == NCCL_CALL) {
-    len = snprintf(buffer, sizeof(buffer), "%s:%d:%d NCCL CALL ", hostname, pid, tid);
+    len = snprintf(buffer, sizeof(buffer), "[%s:pid=%d] NCCL CALL ", hostname, pid);
   } else if (level == NCCL_LOG_TRACE) {
     auto delta = std::chrono::steady_clock::now() - ncclEpoch;
     double timestamp = std::chrono::duration_cast<std::chrono::duration<double>>(delta).count()*1000;
-    len = snprintf(buffer, sizeof(buffer), "%s:%d:%d [%d] %f %s:%d NCCL TRACE ",
-                   hostname, pid, tid, cudaDev, timestamp, filefunc, line);
+    len = snprintf(buffer, sizeof(buffer), "[%s:pid=%d] %f %s:%d NCCL TRACE ",
+                   hostname, pid, timestamp, filefunc, line);
   }
 
   if (len) {
