@@ -1045,8 +1045,8 @@ ib_connect_check:
     meta.qpInfo[q].qpn      = comm->base.qps[q].qp->qp_num;
     meta.qpInfo[q].devIndex = comm->base.qps[q].devIndex;
 
-    // Query ece capabilities (enhanced connection establishment)
-    NCCLCHECK(wrap_ibv_query_ece(comm->base.qps[q].qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
+    // // Query ece capabilities (enhanced connection establishment)
+    // NCCLCHECK(wrap_ibv_query_ece(comm->base.qps[q].qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
     devIndex = (devIndex + 1) % comm->base.ndevs;
   }
 
@@ -1296,8 +1296,8 @@ ib_recv:
   
       // Query the reduced ece for this QP (matching enhancements between the requestor and the responder)
       // Store this in our own qpInfo for returning to the requestor
-      if (meta.qpInfo[q].ece_supported)
-        NCCLCHECK(wrap_ibv_query_ece(qp->qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
+      // if (meta.qpInfo[q].ece_supported)
+      //   NCCLCHECK(wrap_ibv_query_ece(qp->qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
     }
 
     NCCLCHECK(ncclIbRtrQp(qp->qp, rCommDev->base.gidInfo.localGidIndex, remMeta.qpInfo[q].qpn, remDevInfo));
