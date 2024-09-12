@@ -1045,8 +1045,6 @@ ib_connect_check:
     meta.qpInfo[q].qpn      = comm->base.qps[q].qp->qp_num;
     meta.qpInfo[q].devIndex = comm->base.qps[q].devIndex;
 
-    // Query ece capabilities (enhanced connection establishment)
-    NCCLCHECK(wrap_ibv_query_ece(comm->base.qps[q].qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
     devIndex = (devIndex + 1) % comm->base.ndevs;
   }
 
@@ -1161,9 +1159,7 @@ ib_connect:
     uint8_t gidIndex = commDev->base.gidInfo.localGidIndex;
 
     struct ibv_qp* qp = comm->base.qps[q].qp;
-    if (remQpInfo->ece_supported && remQpInfo->ece_supported)
-      NCCLCHECK(wrap_ibv_set_ece(qp, &remQpInfo->ece, &remQpInfo->ece_supported));
-
+    
     NCCLCHECK(ncclIbRtrQp(qp, gidIndex, remQpInfo->qpn, remDevInfo));
     NCCLCHECK(ncclIbRtsQp(qp));
   }
@@ -1289,16 +1285,6 @@ ib_recv:
     NCCLCHECK(ncclIbCreateQp(ibDev->portNum, &rCommDev->base, IBV_ACCESS_REMOTE_WRITE, qp));
     qp->devIndex = devIndex;
     devIndex = (devIndex + 1) % rComm->base.ndevs;
-
-    // Set the ece (enhanced connection establishment) on this QP before RTR
-    if (remMeta.qpInfo[q].ece_supported) {
-      NCCLCHECK(wrap_ibv_set_ece(qp->qp, &remMeta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
-  
-      // Query the reduced ece for this QP (matching enhancements between the requestor and the responder)
-      // Store this in our own qpInfo for returning to the requestor
-      if (meta.qpInfo[q].ece_supported)
-        NCCLCHECK(wrap_ibv_query_ece(qp->qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
-    }
 
     NCCLCHECK(ncclIbRtrQp(qp->qp, rCommDev->base.gidInfo.localGidIndex, remMeta.qpInfo[q].qpn, remDevInfo));
     NCCLCHECK(ncclIbRtsQp(qp->qp));
