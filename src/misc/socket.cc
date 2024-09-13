@@ -468,7 +468,7 @@ static ncclResult_t socketStartConnect(struct ncclSocket* sock) {
   } else if (errno == EINPROGRESS) {
     sock->state = ncclSocketStateConnectPolling;
     return ncclSuccess;
-  } else if (errno == ECONNREFUSED) {
+  } else if (errno == ECONNREFUSED || errno == EHOSTUNREACH ) {
     if (++sock->refusedRetries == RETRY_REFUSED_TIMES) {
       sock->state = ncclSocketStateError;
       WARN("socketStartConnect: exceeded retries (%d)", sock->refusedRetries);
