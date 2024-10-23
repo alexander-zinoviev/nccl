@@ -7,7 +7,6 @@
 #include "socket.h"
 #include "utils.h"
 
-#include <string>
 #include <unistd.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -67,20 +66,17 @@ const char *ncclSocketToString(union ncclSocketAddress *addr, char *buf, const i
   if (buf == NULL || addr == NULL) return NULL;
   struct sockaddr *saddr = &addr->sa;
   if (saddr->sa_family != AF_INET && saddr->sa_family != AF_INET6) { buf[0]='\0'; return buf; }
-  char _host[NI_MAXHOST], service[NI_MAXSERV];
+  char host[NI_MAXHOST] = "", service[NI_MAXSERV] = "";
   /* NI_NUMERICHOST: If set, then the numeric form of the hostname is returned.
    * (When not set, this will still happen in case the node's name cannot be determined.)
    */
   int flag = NI_NUMERICSERV | (numericHostForm ? NI_NUMERICHOST : 0);
-  (void) getnameinfo(saddr, sizeof(union ncclSocketAddress), _host, NI_MAXHOST, service, NI_MAXSERV, flag);
-
-  std::string host(_host);
-  std::size_t i = host.find(".");
-  if (i != std::string::npos) {
-    host = host.substr(0, i);  // Get the short hostname
+  int err = getnameinfo(saddr, sizeof(union ncclSocketAddress), host, NI_MAXHOST, service, NI_MAXSERV, flag);
+  if (err) {
+    INFO(NCCL_NET, "ncclSocketToString: getnameinfo failed with err %d, ignoring", err);
   }
 
-  sprintf(buf, "%s:%s", host.c_str(), service);
+  sprintf(buf, "%s:%s", host, service);
   return buf;
 }
 
