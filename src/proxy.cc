@@ -1454,6 +1454,10 @@ static bool proxyMatchOpType(int type) {
   }
 }
 
+volatile uint32_t atomicLoadAbortFlag(volatile uint32_t* abortFlag) {
+  return __atomic_load_n(abortFlag, __ATOMIC_ACQUIRE);
+}
+
 void* ncclProxyService(void* _args) {
   struct ncclProxyState* proxyState =  (struct ncclProxyState*) _args;
   // if (CPU_COUNT(&comm->cpuAffinity)) sched_setaffinity(0, sizeof(cpu_set_t), &comm->cpuAffinity);
@@ -1487,16 +1491,38 @@ void* ncclProxyService(void* _args) {
   int npeers = 0;
   int stop = 0;
   int asyncOpCount = 0;
+  char *abort_timeout = getenv("NCCL_COMM_ABORT_TIMEOUT_SECONDS");
+  std::chrono::seconds abortTimeout {abort_timeout != nullptr ? std::stoi(abort_timeout) : 0};
+  INFO(NCCL_PROXY, "[Proxy Service] Using NCCL_COMM_ABORT_TIMEOUT_SECONDS=%ld", abortTimeout.count());
+  std::chrono::time_point<std::chrono::steady_clock> abortStartTime;
+
   while (stop == 0 || (stop == 1 && npeers > 0)) {
     /* Even if local comm aborts, we cannot let proxy thread exit if we still have peer
      * connections. Need to wait until all other related comms call abort and safely exit
      * together, or we could face segmentation fault. */
-    if (__atomic_load_n(proxyState->abortFlag, __ATOMIC_RELAXED) != 0) stop = 1;
+
+    if (atomicLoadAbortFlag(proxyState->abortFlag) != 0) {
+      stop = 1;
+
+      if (abortTimeout.count() != 0) {
+        // Initialize abort start time once.
+        if (abortStartTime.time_since_epoch().count() == 0) {
+          abortStartTime = std::chrono::steady_clock::now();
+        }
+
+        // Exit the loop after abort timeout.
+        if (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - abortStartTime) > abortTimeout) {
+          WARN("[Proxy Service] Stopping nccl proxy service thread since we hit abort timeout");
+          break;
+        }
+      }
+    }
+
     /* never let proxy service thread blocks in poll, or it cannot receive abortFlag. */
     int ret;
     do {
       ret = poll(pollfds, NCCL_MAX_LOCAL_RANKS+1, asyncOpCount ? 0 : 500);
-    } while (ret < 0 && errno == EINTR);
+    } while (ret < 0 && errno == EINTR && atomicLoadAbortFlag(proxyState->abortFlag) == 0);
     if (ret < 0) {
       WARN("[Proxy Service] Poll failed: %s", strerror(errno));
       return NULL;

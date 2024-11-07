@@ -88,17 +88,42 @@ NCCL_PARAM(IbTc, "IB_TC", 0);
 NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", 8192);
 NCCL_PARAM(IbPciRelaxedOrdering, "IB_PCI_RELAXED_ORDERING", 2);
 NCCL_PARAM(IbAdaptiveRouting, "IB_ADAPTIVE_ROUTING", -2);
+NCCL_PARAM(IbMqpRetryCnt, "IB_MQP_RETRY_CNT", 6);
+NCCL_PARAM(IbMqpTimeout, "IB_MQP_TIMEOUT", 5);
 
 pthread_t ncclIbAsyncThread;
+
+static bool ncclIbIsPortEvent(ibv_event_type event_type) {
+  return (
+    event_type == IBV_EVENT_PORT_ACTIVE
+    || event_type == IBV_EVENT_LID_CHANGE
+    || event_type == IBV_EVENT_PKEY_CHANGE
+    || event_type == IBV_EVENT_GID_CHANGE
+    || event_type == IBV_EVENT_SM_CHANGE
+    || event_type == IBV_EVENT_CLIENT_REREGISTER
+    || event_type == IBV_EVENT_PORT_ERR
+  );
+}
+
 static void* ncclIbAsyncThreadMain(void* args) {
-  struct ncclIbDev* dev = (struct ncclIbDev*)args;
+  struct ibv_context* context = (struct ibv_context*)args;
+
+  char msg[1024];
   while (1) {
     struct ibv_async_event event;
-    if (ncclSuccess != wrap_ibv_get_async_event(dev->context, &event)) { break; }
-    char *str;
-    if (ncclSuccess != wrap_ibv_event_type_str(&str, event.event_type)) { break; }
-    if (event.event_type != IBV_EVENT_COMM_EST)
-      WARN("NET/IB : %s:%d Got async event : %s", dev->devName, dev->portNum, str);
+    if (ncclSuccess != wrap_ibv_get_async_event(context, &event)) { break; }
+
+    char *event_type_str;
+    if (ncclSuccess != wrap_ibv_event_type_str(&event_type_str, event.event_type)) { break; }
+
+    if (event.event_type != IBV_EVENT_COMM_EST) {
+      if (ncclIbIsPortEvent(event.event_type)) {
+        snprintf(msg, 1024, "%s (name: %s, port_num: %d)", event_type_str, context->device->name, event.element.port_num);
+      } else {
+        snprintf(msg, 1024, "%s (name: %s)", event_type_str, context->device->name);
+      }
+      WARN("NET/IB: Got async event: %s", msg);
+    }
     if (ncclSuccess != wrap_ibv_ack_async_event(&event)) { break; }
   }
   return NULL;
@@ -906,7 +931,8 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* base, 
   qpAttr.pkey_index = ncclParamIbPkey();
   qpAttr.port_num = ib_port;
   qpAttr.qp_access_flags = access_flags;
-  NCCLCHECK(wrap_ibv_modify_qp(qp->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS));
+  NCCLCHECKRETRY(wrap_ibv_modify_qp(qp->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS),
+                 ncclParamIbMqpRetryCnt(), ncclParamIbMqpTimeout());
   return ncclSuccess;
 }
 
@@ -934,7 +960,8 @@ ncclResult_t ncclIbRtrQp(struct ibv_qp* qp, uint8_t sGidIndex, uint32_t dest_qp_
   qpAttr.ah_attr.sl = ncclParamIbSl();
   qpAttr.ah_attr.src_path_bits = 0;
   qpAttr.ah_attr.port_num = info->ib_port;
-  NCCLCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER));
+  NCCLCHECKRETRY(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER),
+                 ncclParamIbMqpRetryCnt(), ncclParamIbMqpTimeout());
   return ncclSuccess;
 }
 
@@ -947,7 +974,8 @@ ncclResult_t ncclIbRtsQp(struct ibv_qp* qp) {
   qpAttr.rnr_retry = 7;
   qpAttr.sq_psn = 0;
   qpAttr.max_rd_atomic = 1;
-  NCCLCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC));
+  NCCLCHECKRETRY(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC),
+                 ncclParamIbMqpRetryCnt(), ncclParamIbMqpTimeout());
   return ncclSuccess;
 }
 
@@ -1022,8 +1050,6 @@ ib_connect_check:
     meta.qpInfo[q].qpn      = comm->base.qps[q].qp->qp_num;
     meta.qpInfo[q].devIndex = comm->base.qps[q].devIndex;
 
-    // Query ece capabilities (enhanced connection establishment)
-    NCCLCHECK(wrap_ibv_query_ece(comm->base.qps[q].qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
     devIndex = (devIndex + 1) % comm->base.ndevs;
   }
 
@@ -1138,9 +1164,7 @@ ib_connect:
     uint8_t gidIndex = commDev->base.gidInfo.localGidIndex;
 
     struct ibv_qp* qp = comm->base.qps[q].qp;
-    if (remQpInfo->ece_supported && remQpInfo->ece_supported)
-      NCCLCHECK(wrap_ibv_set_ece(qp, &remQpInfo->ece, &remQpInfo->ece_supported));
-
+    
     NCCLCHECK(ncclIbRtrQp(qp, gidIndex, remQpInfo->qpn, remDevInfo));
     NCCLCHECK(ncclIbRtsQp(qp));
   }
@@ -1266,16 +1290,6 @@ ib_recv:
     NCCLCHECK(ncclIbCreateQp(ibDev->portNum, &rCommDev->base, IBV_ACCESS_REMOTE_WRITE, qp));
     qp->devIndex = devIndex;
     devIndex = (devIndex + 1) % rComm->base.ndevs;
-
-    // Set the ece (enhanced connection establishment) on this QP before RTR
-    if (remMeta.qpInfo[q].ece_supported) {
-      NCCLCHECK(wrap_ibv_set_ece(qp->qp, &remMeta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
-  
-      // Query the reduced ece for this QP (matching enhancements between the requestor and the responder)
-      // Store this in our own qpInfo for returning to the requestor
-      if (meta.qpInfo[q].ece_supported)
-        NCCLCHECK(wrap_ibv_query_ece(qp->qp, &meta.qpInfo[q].ece, &meta.qpInfo[q].ece_supported));
-    }
 
     NCCLCHECK(ncclIbRtrQp(qp->qp, rCommDev->base.gidInfo.localGidIndex, remMeta.qpInfo[q].qpn, remDevInfo));
     NCCLCHECK(ncclIbRtsQp(qp->qp));

@@ -113,6 +113,21 @@
   } \
 } while (0);
 
+#define NCCLCHECKRETRY(call, retry, timeout) do { \
+  ncclResult_t res = call; \
+  int attempts = 0; \
+  while (res != ncclSuccess && res != ncclInProgress && attempts < retry) { \
+    if (ncclDebugNoWarn == 0) INFO(NCCL_ALL, "%s:%d -> %d sleep %ld sec before retry", __FILE__, __LINE__, res, (timeout * (attempts + 1))); \
+    sleep(timeout * (attempts + 1)); \
+    res = call; \
+    attempts++; \
+  } \
+  if (res != ncclSuccess && res != ncclInProgress) { \
+    return res; \
+  } \
+} while (0);
+
+
 #define NCCLCHECKGOTO(call, RES, label) do { \
   RES = call; \
   if (RES != ncclSuccess && RES != ncclInProgress) { \

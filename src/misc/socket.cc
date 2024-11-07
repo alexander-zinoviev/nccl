@@ -6,7 +6,6 @@
 
 #include "socket.h"
 #include "utils.h"
-#include <stdlib.h>
 
 #include <unistd.h>
 #include <ifaddrs.h>
@@ -61,19 +60,23 @@ static ncclResult_t socketWait(int op, struct ncclSocket* sock, void* ptr, int s
 
 /* Format a string representation of a (union ncclSocketAddress *) socket address using getnameinfo()
  *
- * Output: "IPv4/IPv6 address<port>"
+ * Output: "{host}:{port}"
  */
-const char *ncclSocketToString(union ncclSocketAddress *addr, char *buf, const int numericHostForm /*= 1*/) {
+const char *ncclSocketToString(union ncclSocketAddress *addr, char *buf, const int numericHostForm /*= 0*/) {
   if (buf == NULL || addr == NULL) return NULL;
   struct sockaddr *saddr = &addr->sa;
   if (saddr->sa_family != AF_INET && saddr->sa_family != AF_INET6) { buf[0]='\0'; return buf; }
-  char host[NI_MAXHOST], service[NI_MAXSERV];
+  char host[NI_MAXHOST] = "", service[NI_MAXSERV] = "";
   /* NI_NUMERICHOST: If set, then the numeric form of the hostname is returned.
    * (When not set, this will still happen in case the node's name cannot be determined.)
    */
   int flag = NI_NUMERICSERV | (numericHostForm ? NI_NUMERICHOST : 0);
-  (void) getnameinfo(saddr, sizeof(union ncclSocketAddress), host, NI_MAXHOST, service, NI_MAXSERV, flag);
-  sprintf(buf, "%s<%s>", host, service);
+  int err = getnameinfo(saddr, sizeof(union ncclSocketAddress), host, NI_MAXHOST, service, NI_MAXSERV, flag);
+  if (err) {
+    INFO(NCCL_NET, "ncclSocketToString: getnameinfo failed with err %d, ignoring", err);
+  }
+
+  sprintf(buf, "%s:%s", host, service);
   return buf;
 }
 
@@ -461,7 +464,7 @@ static ncclResult_t socketStartConnect(struct ncclSocket* sock) {
   } else if (errno == EINPROGRESS) {
     sock->state = ncclSocketStateConnectPolling;
     return ncclSuccess;
-  } else if (errno == ECONNREFUSED) {
+  } else if (errno == ECONNREFUSED || errno == EHOSTUNREACH ) {
     if (++sock->refusedRetries == RETRY_REFUSED_TIMES) {
       sock->state = ncclSocketStateError;
       WARN("socketStartConnect: exceeded retries (%d)", sock->refusedRetries);

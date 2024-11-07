@@ -125,6 +125,12 @@ template<int SpecializedFnId, typename SpecializedRunWork>
 __device__ void ncclKernelMain(struct ncclDevComm* comm, uint64_t channelMask, struct ncclWork* workHead) {
   int tid = threadIdx.x;
 
+  { // Check whether the communication was aborted and make sure all threads exit
+    int aborted = tid == 0 ? *comm->abortFlag : 0;
+    if (barrierReduceAny(aborted))
+      return;
+  }
+
   // To map blockId to channelId, we need the n'th set bit of channelMask which
   // is the inverse of counting the number of set bits among the the first n.
   if (tid < WARP_SIZE) {

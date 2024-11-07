@@ -590,7 +590,7 @@ static ncclResult_t collNetInitRailRankMap(ncclComm_t comm) {
 
   comm->collNetDenseToUserRank = ncclMemoryStackAlloc<int>(&comm->memPermanent, comm->nRanks);
   comm->collNetUserToDenseRank = ncclMemoryStackAlloc<int>(&comm->memPermanent, comm->nRanks);
-  // initialize collNetUserToDenseRank[rank]  
+  // initialize collNetUserToDenseRank[rank]
   comm->collNetUserToDenseRank[rank] = -1;
   for (int h = 0; h < comm->collNetHeadsNum; h++) {
     nonHeadMask ^= 1ull << comm->rankToLocalRank[comm->collNetHeads[h]];
@@ -1573,6 +1573,7 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     INFO(NCCL_INIT,"ncclCommInitRank comm %p rank %d nranks %d cudaDev %d nvmlDev %d busId %lx commId 0x%llx - Init COMPLETE",
     comm, comm->rank, comm->nRanks, comm->cudaDev, comm->nvmlDev, comm->busId, (unsigned long long)hashUniqueId(job->commId));
   }
+
 exit:
   if (job->newcomm) {
     /* assign it to user pointer. */
@@ -1824,6 +1825,8 @@ constexpr nvtxPayloadSchemaEntry_t CommInitRankSchema[] = {
 
 NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int nranks, ncclUniqueId commId, int myrank);
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int nranks, ncclUniqueId commId, int myrank) {
+  (void)ncclDebugSetDistributorParams(myrank, nranks);
+
   // Load the CUDA driver and dlsym hooks (can fail on old drivers)
   (void)ncclCudaLibraryInit();
 
@@ -1908,6 +1911,8 @@ ncclResult_t ncclCommSetAsyncError(ncclComm_t comm, ncclResult_t nextState) {
 
 NCCL_API(ncclResult_t, ncclCommInitRankConfig, ncclComm_t* comm, int nranks, ncclUniqueId commId, int myrank, ncclConfig_t *config);
 ncclResult_t ncclCommInitRankConfig(ncclComm_t *newcomm, int nranks, ncclUniqueId commId, int myrank, ncclConfig_t *config) {
+  (void)ncclDebugSetDistributorParams(myrank, nranks);
+
   NVTX3_FUNC_RANGE_IN(nccl_domain);
   int cudaDev;
   ncclResult_t ret = ncclSuccess;

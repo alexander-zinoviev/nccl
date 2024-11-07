@@ -50,10 +50,10 @@ ncclResult_t bootstrapNetInit() {
           return ncclInternalError;
         }
       }
-      char line[SOCKET_NAME_MAXLEN+MAX_IF_NAME_SIZE+2];
-      sprintf(line, " %s:", bootstrapNetIfName);
+      char line[SOCKET_NAME_MAXLEN + MAX_IF_NAME_SIZE + 14]; // 14 is len("netif:  addr: ")
+      snprintf(line, SOCKET_NAME_MAXLEN + MAX_IF_NAME_SIZE + 14, "netif: %s addr: ", bootstrapNetIfName);
       ncclSocketToString(&bootstrapNetIfAddr, line+strlen(line));
-      INFO(NCCL_INIT, "Bootstrap : Using%s", line);
+      INFO(NCCL_INIT, "Bootstrap : Using %s", line);
       bootstrapNetInitDone = 1;
     }
     pthread_mutex_unlock(&bootstrapNetLock);
@@ -321,6 +321,15 @@ ncclResult_t bootstrapInit(struct ncclBootstrapHandle* handle, struct ncclComm* 
   state->peerProxyAddressesUDS[rank] = getPidHash()+randId;
   NCCLCHECK(bootstrapAllGather(state, state->peerProxyAddressesUDS, sizeof(*state->peerProxyAddressesUDS)));
   NCCLCHECK(ncclProxyInit(comm, proxySocket, state->peerProxyAddresses, state->peerProxyAddressesUDS));
+
+  if (rank == 0) {
+    INFO(NCCL_INIT, "Proxy service listen addresses for all ranks:");
+    char addr_str[1025];
+    for (int i = 0; i < nranks; i++) {
+      ncclSocketToString(&state->peerProxyAddresses[i], addr_str);
+      INFO(NCCL_INIT, "  * rank: %4d peerProxyAddress: %s", i, addr_str);
+    }
+  }
 
   TRACE(NCCL_INIT, "rank %d nranks %d - DONE", rank, nranks);
 
